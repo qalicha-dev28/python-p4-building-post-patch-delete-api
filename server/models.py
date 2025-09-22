@@ -1,57 +1,65 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import MetaData
-from sqlalchemy_serializer import SerializerMixin
+from sqlalchemy.orm import validates
+from datetime import datetime
 
-metadata = MetaData(naming_convention={
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-})
+db = SQLAlchemy()
 
-db = SQLAlchemy(metadata=metadata)
-
-class Game(db.Model, SerializerMixin):
-    __tablename__ = 'games'
-
-    serialize_rules = ('-reviews.game',)
-
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String, unique=True)
-    genre = db.Column(db.String)
-    platform = db.Column(db.String)
-    price = db.Column(db.Integer)
-    created_at = db.Column(db.DateTime, server_default=db.func.now())
-    updated_at = db.Column(db.DateTime, onupdate=db.func.now())
-
-    reviews = db.relationship('Review', backref='game')
-
-    def __repr__(self):
-        return f'<Game {self.title} for {self.platform}>'
-
-class Review(db.Model, SerializerMixin):
-    __tablename__ = 'reviews'
-
-    serialize_rules = ('-game.reviews', '-user.reviews',)
-    
-    id = db.Column(db.Integer, primary_key=True)
-    score = db.Column(db.Integer)
-    comment = db.Column(db.String)
-    created_at = db.Column(db.DateTime, server_default=db.func.now())
-    updated_at = db.Column(db.DateTime, onupdate=db.func.now())
-
-    game_id = db.Column(db.Integer, db.ForeignKey('games.id'))
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-
-    def __repr__(self):
-        return f'<Review ({self.id}) of {self.game}: {self.score}/10>'
-
-class User(db.Model, SerializerMixin):
+class User(db.Model):
     __tablename__ = 'users'
 
-    serialize_rules = ('-reviews.user',)
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String, unique=True, nullable=False)
+
+    reviews = db.relationship("Review", back_populates="user")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username
+        }
+
+
+class Game(db.Model):
+    __tablename__ = 'games'
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String)
-    
-    created_at = db.Column(db.DateTime, server_default=db.func.now())
-    updated_at = db.Column(db.DateTime, onupdate=db.func.now())
+    title = db.Column(db.String, nullable=False)
 
-    reviews = db.relationship('Review', backref='user')
+    reviews = db.relationship("Review", back_populates="game")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title
+        }
+
+
+class Review(db.Model):
+    __tablename__ = 'reviews'
+
+    id = db.Column(db.Integer, primary_key=True)
+    score = db.Column(db.Integer, nullable=False)
+    comment = db.Column(db.String)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    game_id = db.Column(db.Integer, db.ForeignKey("games.id"))
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+
+    game = db.relationship("Game", back_populates="reviews")
+    user = db.relationship("User", back_populates="reviews")
+
+    @validates("score")
+    def validate_score(self, key, value):
+        if value < 0 or value > 10:
+            raise ValueError("Score must be between 0 and 10")
+        return value
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "score": self.score,
+            "comment": self.comment,
+            "game_id": self.game_id,
+            "user_id": self.user_id,
+            "created_at": self.created_at.isoformat()
+        }
